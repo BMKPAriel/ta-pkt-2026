@@ -272,7 +272,7 @@ a.btn{text-decoration:none;display:inline-block}
 /* ============ KONFIGURASI BAWAAN (diisi Super Admin) ============ */
 const SERVER_BAWAAN = 'https://script.google.com/macros/s/AKfycbzyf8NAH4JVWUUaPb9jUy-km5d_i2imOkE2q2QadTt5QZ8xGab_0E3Lzr1ZC9FIeS0/exec';   // URL Web App Apps Script (/exec) — bila diisi, semua perangkat otomatis tersambung
 const KODE_BAWAAN   = 'TA-PKT-5-2026';   // sama dengan KODE_AKSES di Code.gs
-const APP_VER = '2.0.0';
+const APP_VER = '2.0.1';
 const P = 'tpkt_';          // awalan penyimpanan lokal
 
 /* ============ UTIL ============ */
@@ -556,7 +556,7 @@ const Trip = {
     t.gpsN = (t.gpsN || 0) + 1; t.lastFix = Date.now(); DB.put('trips', t, {noAudit: true});
     this.paint(); Sync.ui(); Sync.gpsFlush();
   },
-  paint() { const el = document.getElementById('gpsStat'); if (!el) return; const t = this.active(); if (t && SES.user && SES.user.peran === 'Driver') { const ok = this.status === 'aktif' && t.lastFix && Date.now() - t.lastFix < 5 * 60e3; el.className = 'dgps ' + (ok ? 'ok' : 'bad'); el.innerHTML = ok ? '📡 GPS aktif — lokasi terkirim' : (this.status === 'aktif' ? '📡 Mencari sinyal GPS…' : '⚠️ ' + esc(this.status) + ' — tekan ⋯ › Cek GPS'); return; } el.innerHTML = t ? `<b>${esc(this.status)}</b> · titik terekam: ${t.gpsN || 0} · fix terakhir: ${t.lastFix ? timeStr(new Date(t.lastFix)) : '—'}${this.err ? ' · ' + esc(this.err) : ''}` : 'Tidak ada trip aktif'; },
+  paint() { const el = document.getElementById('gpsStat'); if (!el) return; const t = this.active(); if (t && SES.user && isDrvUI()) { const ok = this.status === 'aktif' && t.lastFix && Date.now() - t.lastFix < 5 * 60e3; el.className = 'dgps ' + (ok ? 'ok' : 'bad'); el.innerHTML = ok ? '📡 GPS aktif — lokasi terkirim' : (this.status === 'aktif' ? '📡 Mencari sinyal GPS…' : '⚠️ ' + esc(this.status) + ' — tekan ⋯ › Cek GPS'); return; } el.innerHTML = t ? `<b>${esc(this.status)}</b> · titik terekam: ${t.gpsN || 0} · fix terakhir: ${t.lastFix ? timeStr(new Date(t.lastFix)) : '—'}${this.err ? ' · ' + esc(this.err) : ''}` : 'Tidak ada trip aktif'; },
   nearest(pt) { let best = null; DB.all('lokasi').forEach(l => { if (l.lat && l.lng) { const d = haversine(pt, {lat: +l.lat, lng: +l.lng}); if (!best || d < best.d) best = {l, d}; } }); return best; }
 };
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Trip.active() && !Trip.active().sb) { Trip.lock = null; Trip.wake(); } });
@@ -788,7 +788,7 @@ const Router = {
     try { SCREENS[id](main); } catch (e) { console.error(e); main.innerHTML = `<div class="card note red">Terjadi kesalahan saat membuka menu: ${esc(e.message)}</div>`; }
     window.scrollTo(0, 0);
   },
-  refresh(soft) { if (SES.user && SES.user.peran === 'Driver') { if (!DRV.step) drvPaint(); return; } if (soft && this.cur === 'monitor' && MON.alive()) return MON.update(); if (this.cur && SCREENS[this.cur]) { const y = window.scrollY; this.go(this.cur); if (soft) window.scrollTo(0, y); } }
+  refresh(soft) { if (SES.user && isDrvUI()) { if (!DRV.step) drvPaint(); return; } if (soft && this.cur === 'monitor' && MON.alive()) return MON.update(); if (this.cur && SCREENS[this.cur]) { const y = window.scrollY; this.go(this.cur); if (soft) window.scrollTo(0, y); } }
 };
 window.addEventListener('hashchange', () => { if (SES.user && document.getElementById('main')) { const id = location.hash.replace('#/', ''); if (id !== Router.cur) Router.go(id); } });
 document.addEventListener('click', e => { const a = e.target.closest('.sub a'); if (a) { e.preventDefault(); Router.go(a.dataset.id); } });
@@ -1053,6 +1053,7 @@ function tripFlags(t) {
 SCREENS.tripku = main => {
   const u = SES.user, t = Trip.active(); const myKend = DB.all('kendaraan').filter(k => k.aktif !== 'Tidak' && (!k.drv || k.drv === u.id || isSA() || u.peran !== 'Driver'));
   head(main, 'Trip Saya', `${esc(u.nama)} · jam kerja pelacakan ${S().jam.mulai}–${S().jam.selesai}`);
+  if (SES.user.peran !== 'Driver') { main.insertAdjacentHTML('beforeend', `<div class="card" style="border-left:5px solid var(--or)"><b>Menyetir sendiri?</b> Pakai tampilan driver: tombol besar, kamera langsung, standby, dan posisi unit di peta.<div class="bar" style="margin:10px 0 0"><button class="btn or big" id="tkDrv">🚙 Buka tampilan driver</button></div></div>`); $('#tkDrv').onclick = () => { DRV.sa = true; renderDriver(); }; }
   if (!t) {
     const k0 = (myKend.find(k => k.drv === u.id) || myKend[0] || {}).id || '';
     const prev = k0 ? prevKmAkhir(k0, Date.now()) : null;
@@ -1204,19 +1205,20 @@ async function ambilTitik(id) { toast('Mengambil posisi…'); try { const p = aw
 /* ============ MODE DRIVER SEDERHANA ============
    Prinsip: tombol besar, sedikit ketik. Kendaraan & KM terisi otomatis, check-in lokasi otomatis dari GPS. */
 const KEPERLUAN = [['👷', 'Antar pekerja'], ['🔁', 'Jemput pekerja'], ['📦', 'Ambil / antar material'], ['🛠️', 'Antar alat'], ['📄', 'Urusan kantor / dokumen'], ['➕', 'Lainnya']];
+function isDrvUI() { return !!SES.user && (SES.user.peran === 'Driver' || DRV.sa); }
 const DRV = {step: null, foto: null, fotoUrl: null};
 function drvKend() { const u = SES.user; const ks = DB.all('kendaraan').filter(k => k.aktif !== 'Tidak'); const mine = ks.filter(k => k.drv === u.id); return mine.length ? mine : ks.filter(k => !k.drv); } // driver hanya bisa memakai kendaraannya sendiri (atau kendaraan tanpa driver tetap)
 function gpsKm(t) { const p = LS.get('gpslocal', []).filter(x => x.trip === t.id); let d = 0; for (let i = 1; i < p.length; i++) d += haversine(p[i - 1], p[i]); return d / 1000; }
 function estKm(t) { return Math.round(nnum(t.kmAwal) + gpsKm(t) * 1.1); }
 function renderDriver() {
   const u = SES.user, app = document.getElementById('app');
-  app.innerHTML = `<div class="drv"><header class="dtop">${logosHTML('dlogo')}<div class="drow"><div><b>${esc(u.nama)}</b><span>Driver · TA NOV 2026</span></div><button id="syncBtn" class="sync off">Luring</button><button class="dmore" id="dMore">⋯</button></div></header><main id="dmain"></main><div class="dfoot">PT. Bumimarga Kharismaperkasa · Design by Ariel Panda</div></div>`;
+  app.innerHTML = `<div class="drv"><header class="dtop">${logosHTML('dlogo')}<div class="drow"><div><b>${esc(u.nama)}</b><span>${DRV.sa ? 'Mode driver' : 'Driver'} · TA NOV 2026</span></div><button id="syncBtn" class="sync off">Luring</button><button class="dmore" id="dMore">⋯</button></div></header><main id="dmain"></main><div class="dfoot">PT. Bumimarga Kharismaperkasa · Design by Ariel Panda</div></div>`;
   $('#syncBtn').onclick = () => Sync.run(true);
-  $('#dMore').onclick = () => modal('Menu', `<div class="dgrid1"><button class="dbtn soft" id="mRute">🗺️ Rute harian saya</button><button class="dbtn soft" id="mRiw">🗂️ Riwayat perjalanan saya</button><button class="dbtn soft" id="mGps">📡 Cek GPS</button><button class="dbtn soft" id="mPin">🔑 Ganti PIN</button><button class="dbtn soft red" id="mOut">⏏ Keluar dari aplikasi</button></div>`);
-  if (!DRV.bound) { DRV.bound = 1; document.addEventListener('click', e => { const id = e.target.id; if (id === 'mRute') { closeModal(); DRV.step = 'rute'; drvPaint(); } if (id === 'mRiw') { closeModal(); DRV.step = 'riwayat'; drvPaint(); } if (id === 'mGps') { closeModal(); drvCekGps(); } if (id === 'mPin') { closeModal(); changePinDialog(false); } if (id === 'mOut') { closeModal(); if (Trip.active()) return toast('Tekan PULANG KE POOL dulu sebelum keluar.'); confirmBox('Keluar dari aplikasi? Lain kali harus masukkan PIN lagi.', () => endSession()); } }); }
+  $('#dMore').onclick = () => modal('Menu', `<div class="dgrid1">${DRV.sa ? '<button class="dbtn soft" id="mBack">↩ Kembali ke menu Project Control</button>' : ''}<button class="dbtn soft" id="mRute">🗺️ Rute harian saya</button><button class="dbtn soft" id="mRiw">🗂️ Riwayat perjalanan saya</button><button class="dbtn soft" id="mGps">📡 Cek GPS</button><button class="dbtn soft" id="mPin">🔑 Ganti PIN</button><button class="dbtn soft red" id="mOut">⏏ Keluar dari aplikasi</button></div>`);
+  if (!DRV.bound) { DRV.bound = 1; document.addEventListener('click', e => { const id = e.target.id; if (id === 'mBack') { closeModal(); DRV.sa = false; DRV.step = null; clearInterval(DRV.iv); renderShell(); return; } if (id === 'mRute') { closeModal(); DRV.step = 'rute'; drvPaint(); } if (id === 'mRiw') { closeModal(); DRV.step = 'riwayat'; drvPaint(); } if (id === 'mGps') { closeModal(); drvCekGps(); } if (id === 'mPin') { closeModal(); changePinDialog(false); } if (id === 'mOut') { closeModal(); if (Trip.active()) return toast('Tekan PULANG KE POOL dulu sebelum keluar.'); confirmBox('Keluar dari aplikasi? Lain kali harus masukkan PIN lagi.', () => endSession()); } }); }
   Router.cur = 'tripku';
   DRV.step = null; drvPaint(); if (Trip.active()) Trip.startWatch(); Sync.run();
-  clearInterval(DRV.iv); DRV.iv = setInterval(() => { if (SES.user && SES.user.peran === 'Driver' && !DRV.step) drvPaint(); }, 30e3);
+  clearInterval(DRV.iv); DRV.iv = setInterval(() => { if (SES.user && isDrvUI() && !DRV.step) drvPaint(); }, 30e3);
 }
 function drvPaint() {
   const m = $('#dmain'); if (!m) return; const t = Trip.active(); const now = new Date();
@@ -1230,7 +1232,7 @@ function drvPaint() {
   if (!t) {
     const k = drvKend()[0]; const done = DB.all('trips').filter(x => x.drv === SES.user.id && x.tgl === todayStr() && x.selesai).length;
     m.innerHTML = `<div class="dhello">Selamat ${now.getHours() < 11 ? 'pagi' : now.getHours() < 15 ? 'siang' : 'sore'}, ${esc(SES.user.nama.split(' ')[0])} 👋</div>
-      ${k ? `<div class="dcar">🚌 ${esc(k.nopol)} <span>${esc(k.unit || '')}</span></div>` : '<div class="dwarn">Belum ada kendaraan untuk Anda. Hubungi Project Control.</div>'}
+      ${k ? `<div class="dcar">${kendEmoji(k)} ${esc(k.nopol)} <span>${esc(k.unit || '')}</span></div>` : '<div class="dwarn">Belum ada kendaraan untuk Anda. Hubungi Project Control.</div>'}
       <button class="dbig go" id="dGo" ${k ? '' : 'disabled'}><span>▶</span>BERANGKAT</button>
       ${drvPosBtn()}<p class="dhint">Tekan saat keluar dari pool.${done ? `<br>Hari ini sudah ${done} perjalanan selesai ✔` : ''}</p>
       ${Trip.inHours() ? '' : `<p class="dhint">Jam kerja ${S().jam.mulai}–${S().jam.selesai}</p>`}`;
@@ -1389,7 +1391,7 @@ Trip.autoStop = function (pt) {
   if (inside === this.autoLok) return; this.autoLok = inside; if (!inside) return;
   const last = (t.stops || []).slice(-1)[0]; if ((last && last.lok === inside) || (!last && t.lokAwal === inside)) return; // masuk lagi setelah keluar (mis. Gate 1 ⇄ Gate 2) tetap dihitung
   t.stops = t.stops || []; t.stops.push({t: Date.now(), lok: inside, ket: 'otomatis (GPS)', lat: pt.lat, lng: pt.lng, auto: 1}); DB.put('trips', t, {noAudit: true});
-  if (SES.user && SES.user.peran === 'Driver' && !DRV.step) drvPaint();
+  if (SES.user && isDrvUI() && !DRV.step) drvPaint();
 };
 
 /* ----- posisi kendaraan (semua driver saling tahu) ----- */
@@ -1566,7 +1568,7 @@ async function drvPosisi(m) {
   const today = todayStr(); if (DRV.lm) { DRV.lm.destroy(); DRV.lm = null; }
   m.innerHTML = `${drvBack()}<h2 class="dh">Posisi kendaraan</h2><div class="live drvl"><div class="lvhead"><span class="lvbadge on"><i></i>LIVE</span><span id="dPosUp" class="lvup"></span></div><div id="dMap" class="dmap"></div></div><div id="dPosL" class="lvlist drvlist"><p class="dhint">Memuat…</p></div><p class="dhint">Sentuh kartu untuk melihat unit di peta. Hanya posisi terakhir yang ditampilkan.</p>`;
   const draw = pos => { if (DRV.step !== 'posisi') return; const mine = Trip.active(); const pts = LS.get('gpslocal', []).filter(p => todayStr(new Date(p.t)) === today); if (mine && Trip.lastPos) pos[mine.kend] = {lat: Trip.lastPos.lat, lng: Trip.lastPos.lng, t: Trip.lastPos.t};
-    const list = fleetState(today, pts, pos, true); list.forEach(v => { if (!mine || v.id !== mine.kend) { v.trails = []; v.dist = 0; v.du = null; v.spd = 0; } });
+    const list = fleetState(today, pts, pos, !DRV.sa); list.forEach(v => { if (!mine || v.id !== mine.kend) { v.trails = []; v.dist = 0; v.du = null; v.spd = 0; } });
     const el = $('#dPosL'); if (el) el.innerHTML = vehCardsHTML(list, DRV.lm ? DRV.lm.follow : null); const up = $('#dPosUp'); if (up) up.textContent = 'diperbarui ' + timeStr(new Date());
     if (DRV.lm) DRV.lm.setVehicles(list); DRV.plist = list; };
   $('#dPosL').onclick = e => { const c = e.target.closest('[data-v]'); if (c && DRV.lm) { DRV.lm.focus(c.dataset.v, true); $('#dPosL').innerHTML = vehCardsHTML(DRV.plist || [], c.dataset.v); document.getElementById('dMap').scrollIntoView({behavior: 'smooth', block: 'center'}); } };
