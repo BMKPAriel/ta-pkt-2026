@@ -25,6 +25,7 @@ function doPost(e) {
       case 'audit_pull': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(auditPull_());
       case 'presence': return out_(presence_(b));
       case 'presence_list': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(presenceList_());
+      case 'pos_now': return out_(posNow_());
       case 'upload': return out_(upload_(b.name, b.data));
       case 'stats': return out_(stats_());
       default: return out_({ok: false, error: 'Aksi tidak dikenal'});
@@ -80,6 +81,13 @@ function gpsPull_(date) {
   const v = s.getRange(2, 1, n - 1, 10).getValues(); const tz = Session.getScriptTimeZone(); const pts = [];
   v.forEach(r => { const d = r[2] instanceof Date ? Utilities.formatDate(r[2], tz, 'yyyy-MM-dd') : String(r[2]); if (!date || d === date) pts.push({t: Number(r[1]), trip: r[3], kend: r[4], drv: r[5], lat: Number(r[6]), lng: Number(r[7]), acc: Number(r[8]), spd: Number(r[9])}); });
   return {ok: true, points: pts};
+}
+function posNow_() { // posisi TERAKHIR per kendaraan (3 jam terakhir) — untuk layar driver, tanpa riwayat rute
+  const s = sh_('gps', ['waktu', 't', 'tanggal', 'trip', 'kendaraan', 'driver', 'lat', 'lng', 'akurasi_m', 'kecepatan_kmj']); const n = s.getLastRow();
+  if (n < 2) return {ok: true, list: []};
+  const st = Math.max(2, n - 3000); const v = s.getRange(st, 1, n - st + 1, 10).getValues(); const last = {}; const lim = Date.now() - 3 * 3600e3;
+  v.forEach(r => { const t = Number(r[1]); if (t > lim && (!last[r[4]] || last[r[4]].t < t)) last[r[4]] = {kend: r[4], t, lat: Number(r[6]), lng: Number(r[7])}; });
+  return {ok: true, list: Object.keys(last).map(k => last[k])};
 }
 /* ---------- audit & online ---------- */
 function auditPush_(rows) {
