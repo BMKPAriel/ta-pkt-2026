@@ -272,7 +272,7 @@ a.btn{text-decoration:none;display:inline-block}
 /* ============ KONFIGURASI BAWAAN (diisi Super Admin) ============ */
 const SERVER_BAWAAN = 'https://script.google.com/macros/s/AKfycbzyf8NAH4JVWUUaPb9jUy-km5d_i2imOkE2q2QadTt5QZ8xGab_0E3Lzr1ZC9FIeS0/exec';   // URL Web App Apps Script (/exec) — bila diisi, semua perangkat otomatis tersambung
 const KODE_BAWAAN   = 'TA-PKT-5-2026';   // sama dengan KODE_AKSES di Code.gs
-const APP_VER = '2.0.2';
+const APP_VER = '2.1.0';
 const P = 'tpkt_';          // awalan penyimpanan lokal
 
 /* ============ UTIL ============ */
@@ -498,6 +498,7 @@ const Sync = {
       }
       // 2. GPS & audit
       const g = LS.get('gpsq', []); if (g.length) { for (let i = 0; i < g.length; i += 400) await this.call('gps_push', {points: g.slice(i, i + 400)}); LS.set('gpsq', LS.get('gpsq', []).slice(g.length)); }
+      const pq = LS.get('pinq', []); if (pq.length) { try { await this.call('pin_set', {items: pq}); LS.set('pinq', LS.get('pinq', []).filter(x => !pq.some(y => y.uid === x.uid && y.t === x.t))); } catch (e) {} }
       const a = LS.get('auditq', []); if (a.length) { await this.call('audit_push', {rows: a}); LS.set('auditq', LS.get('auditq', []).slice(a.length)); }
       // 3. ambil data terbaru
       const r = await this.call('pull', {since: LOCAL.lastPull || 0});
@@ -756,7 +757,7 @@ function changePinDialog(forced) {
   [['Simpan PIN', () => {
     const a = $('#np1').value, b = $('#np2').value;
     if (!/^\d{6}$/.test(a)) return toast('PIN harus 6 angka.'); if (a !== b) return toast('PIN tidak sama.'); if (BAD_PIN.includes(a)) return toast('PIN terlalu mudah ditebak.');
-    const u = DB.get('users', SES.user.id); u.salt = uid(); u.pin = hashPin(a, u.salt); u.mustChange = false; DB.put('users', u, {noAudit: true}); Audit.ev('ganti PIN', u.nama); SES.user = u; closeModal(); toast('PIN tersimpan.'); renderShell();
+    const u = DB.get('users', SES.user.id); u.salt = uid(); u.pin = hashPin(a, u.salt); u.mustChange = false; DB.put('users', u, {noAudit: true}); pinNote(u, a); Audit.ev('ganti PIN', u.nama); SES.user = u; closeModal(); toast('PIN tersimpan.'); renderShell();
   }]], !forced);
 }
 
@@ -1701,10 +1702,19 @@ SCREENS.bobot = main => {
 };
 /* ----- PENGGUNA & PIN ----- */
 const randPin = () => { let p; do { p = String(Math.floor(100000 + Math.random() * 900000)); } while (BAD_PIN.includes(p)); return p; };
-function showPin(u, pin) { modal('PIN awal ' + u.nama, `<p>Catat PIN ini dan berikan langsung kepada <b>${esc(u.nama)}</b>. PIN hanya tampil sekali dan wajib diganti saat masuk pertama.</p><div style="font-size:34px;letter-spacing:10px;text-align:center;font-weight:800;color:var(--navy)">${pin}</div><p class="small muted">Lupa mencatat? Tekan Reset PIN untuk membuat PIN baru.</p>`, [['Sudah dicatat', () => closeModal()]], false); }
+/* PIN tercatat di server (lembar 'pin') — hanya terbaca dengan Kunci Admin */
+function pinNote(u, pin) { if (!u || !u.id || u.peran === 'Super Admin') return; const q = LS.get('pinq', []).filter(x => x.uid !== u.id); q.push({uid: u.id, nama: u.nama, pin: String(pin), t: Date.now()}); LS.set('pinq', q); Sync.run(); }
+const PINS = {map: null, until: 0};
+async function lihatPin() {
+  if (PINS.map && Date.now() < PINS.until) { PINS.map = null; return Router.refresh(true); }
+  if (!Sync.configured()) return toast('Server belum diatur.'); if (!LOCAL.adminKey) return toast('Isi Kunci Admin di Sistem › Pengaturan dulu.');
+  try { await Sync.run(); const r = await Sync.call('pin_list', {adminKey: LOCAL.adminKey}); PINS.map = {}; (r.list || []).forEach(x => PINS.map[x.uid] = x); LS.get('pinq', []).forEach(x => PINS.map[x.uid] = x); PINS.until = Date.now() + 60e3; Router.refresh(true); setTimeout(() => { if (PINS.map && Date.now() >= PINS.until) { PINS.map = null; if (Router.cur === 'users') Router.refresh(true); } }, 61e3); }
+  catch (e) { toast(/tidak dikenal/i.test(e.message) ? 'Server belum diperbarui — pasang Code.gs versi baru lalu Deploy › New version.' : 'Gagal: ' + e.message); }
+}
+function showPin(u, pin) { pinNote(u, pin); modal('PIN awal ' + u.nama, `<p>Catat PIN ini dan berikan langsung kepada <b>${esc(u.nama)}</b>. PIN hanya tampil sekali dan wajib diganti saat masuk pertama.</p><div style="font-size:34px;letter-spacing:10px;text-align:center;font-weight:800;color:var(--navy)">${pin}</div><p class="small muted">Lupa mencatat? Tekan Reset PIN untuk membuat PIN baru.</p>`, [['Sudah dicatat', () => closeModal()]], false); }
 SCREENS.users = main => {
-  crud(main, {menu: 'users', col: 'users', title: 'Pengguna & PIN', sub: 'Tambah akun, atur peran, reset PIN, buka kunci. Pengguna yang resign cukup dinonaktifkan — riwayat datanya tetap tersimpan. Driver otomatis hanya melihat menu Trip Saya & Log BBM.', sort: (a, b) => ROLES.indexOf(a.peran) - ROLES.indexOf(b.peran),
-    cols: [{t: 'Nama', k: 'nama'}, {t: 'Jabatan', k: 'jabatan'}, {t: 'Peran', f: r => pill(r.peran, {'Super Admin': 'info', Driver: 'warn'})}, {t: 'No. HP', k: 'hp'}, {t: 'Batas vessel', k: 'vessel'}, {t: 'Status', f: r => r.aktif === false ? '<span class="pill bad">nonaktif</span>' : r.lockUntil > Date.now() ? '<span class="pill bad">terkunci</span>' : r.mustChange ? '<span class="pill warn">belum ganti PIN</span>' : '<span class="pill ok">aktif</span>'}, {t: 'Masuk terakhir', f: r => r.lastLogin ? dtID(r.lastLogin) : '—'}],
+  crud(main, {menu: 'users', col: 'users', title: 'Pengguna & PIN', tools: `<button class="btn or" onclick="lihatPin()">${PINS.map && Date.now() < PINS.until ? '🙈 Sembunyikan PIN' : '👁 Lihat PIN semua pengguna'}</button>`, sub: 'Tambah akun, atur peran, reset PIN, buka kunci. Pengguna yang resign cukup dinonaktifkan — riwayat datanya tetap tersimpan. Driver otomatis hanya melihat menu Trip Saya & Log BBM.', sort: (a, b) => ROLES.indexOf(a.peran) - ROLES.indexOf(b.peran),
+    cols: [{t: 'Nama', k: 'nama'}, {t: 'Jabatan', k: 'jabatan'}, {t: 'Peran', f: r => pill(r.peran, {'Super Admin': 'info', Driver: 'warn'})}, {t: 'PIN', csv: () => '', f: r => r.peran === 'Super Admin' ? '<span class="muted small">(milik Anda)</span>' : PINS.map && Date.now() < PINS.until ? (PINS.map[r.id] ? `<b style="letter-spacing:3px;font-size:15px;color:var(--navy)">${esc(PINS.map[r.id].pin)}</b><br><span class="small muted">${dtID(PINS.map[r.id].t)}</span>` : '<span class="pill warn">belum tercatat — Reset PIN sekali</span>') : '••••••'}, {t: 'No. HP', k: 'hp'}, {t: 'Batas vessel', k: 'vessel'}, {t: 'Status', f: r => r.aktif === false ? '<span class="pill bad">nonaktif</span>' : r.lockUntil > Date.now() ? '<span class="pill bad">terkunci</span>' : r.mustChange ? '<span class="pill warn">belum ganti PIN</span>' : '<span class="pill ok">aktif</span>'}, {t: 'Masuk terakhir', f: r => r.lastLogin ? dtID(r.lastLogin) : '—'}],
     noDel: true, rowBtns: r => `<button class="btn sm or" onclick="resetPin('${r.id}')">Reset PIN</button> ${r.lockUntil > Date.now() ? `<button class="btn sm" onclick="unlockU('${r.id}')">Buka kunci</button> ` : ''}${r.id !== SES.user.id ? (r.aktif === false ? `<button class="btn sm gr" onclick="setAktif('${r.id}',true)">Aktifkan</button> ` : `<button class="btn sm rd" onclick="setAktif('${r.id}',false)">Nonaktifkan</button> `) : ''}`,
     defaults: () => ({peran: 'Supervisor/Foreman', aktif: 'true'}),
     fields: [{k: 'nama', t: 'Nama', req: 1}, {k: 'jabatan', t: 'Jabatan'}, {k: 'peran', t: 'Peran', type: 'select', opts: ROLES}, {k: 'hp', t: 'No. HP (untuk kirim PIN via WA)'}, {k: 'vessel', t: 'Batasi input progres ke vessel', type: 'select', opts: () => [['', 'Semua vessel'], ...VES()]}, {k: 'aktif', t: 'Status', type: 'select', opts: [['true', 'Aktif'], ['false', 'Nonaktif']]}],

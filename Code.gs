@@ -27,6 +27,8 @@ function doPost(e) {
       case 'presence_list': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(presenceList_());
       case 'pos_now': return out_(posNow_());
       case 'upload': return out_(upload_(b.name, b.data));
+      case 'pin_set': lock.waitLock(25000); return out_(pinSet_(b.items || []));
+      case 'pin_list': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(pinList_());
       case 'stats': return out_(stats_());
       default: return out_({ok: false, error: 'Aksi tidak dikenal'});
     }
@@ -112,6 +114,16 @@ function presenceList_() {
   const all = PropertiesService.getScriptProperties().getProperties(); const now = Date.now(); const list = [];
   Object.keys(all).forEach(k => { if (k.indexOf('pr_') !== 0) return; try { const o = JSON.parse(all[k]); if (now - o.t < 10 * 60e3) list.push(o); } catch (e) {} });
   return {ok: true, list};
+}
+/* ---------- catatan PIN (hanya terbaca dengan ADMIN_KEY) ---------- */
+function pinSet_(items) {
+  const s = sh_('pin', ['uid', 'nama', 'pin', 'diubah', 't']); const n = s.getLastRow(); const ids = n > 1 ? s.getRange(2, 1, n - 1, 1).getValues().map(r => String(r[0])) : [];
+  items.forEach(it => { const row = [it.uid, it.nama, "'" + String(it.pin), new Date(Number(it.t)), Number(it.t)]; const i = ids.indexOf(String(it.uid)); if (i >= 0) s.getRange(i + 2, 1, 1, 5).setValues([row]); else { s.appendRow(row); ids.push(String(it.uid)); } });
+  return {ok: true};
+}
+function pinList_() {
+  const s = sh_('pin', ['uid', 'nama', 'pin', 'diubah', 't']); const n = s.getLastRow(); if (n < 2) return {ok: true, list: []};
+  return {ok: true, list: s.getRange(2, 1, n - 1, 5).getValues().map(r => ({uid: String(r[0]), nama: r[1], pin: ('000000' + String(r[2]).replace(/\D/g, '')).slice(-6), t: Number(r[4])}))};
 }
 /* ---------- foto ---------- */
 function upload_(name, data) {
