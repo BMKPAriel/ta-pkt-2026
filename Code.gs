@@ -20,7 +20,7 @@ function doPost(e) {
       case 'push': lock.waitLock(25000); return out_(push_(b.items || []));
       case 'pull': return out_(pull_(Number(b.since) || 0));
       case 'gps_push': lock.waitLock(25000); return out_(gpsPush_(b.points || []));
-      case 'gps_pull': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(gpsPull_(b.date));
+      case 'gps_pull': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(gpsPull_(b.date, Number(b.since) || 0));
       case 'audit_push': lock.waitLock(25000); return out_(auditPush_(b.rows || []));
       case 'audit_pull': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(auditPull_());
       case 'presence': return out_(presence_(b));
@@ -75,11 +75,12 @@ function gpsPush_(pts) {
   s.getRange(s.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
   return {ok: true, n: rows.length};
 }
-function gpsPull_(date) {
+function gpsPull_(date, since) {
   const s = sh_('gps', ['waktu', 't', 'tanggal', 'trip', 'kendaraan', 'driver', 'lat', 'lng', 'akurasi_m', 'kecepatan_kmj']); const n = s.getLastRow();
   if (n < 2) return {ok: true, points: []};
-  const v = s.getRange(2, 1, n - 1, 10).getValues(); const tz = Session.getScriptTimeZone(); const pts = [];
-  v.forEach(r => { const d = r[2] instanceof Date ? Utilities.formatDate(r[2], tz, 'yyyy-MM-dd') : String(r[2]); if (!date || d === date) pts.push({t: Number(r[1]), trip: r[3], kend: r[4], drv: r[5], lat: Number(r[6]), lng: Number(r[7]), acc: Number(r[8]), spd: Number(r[9])}); });
+  const st = since ? Math.max(2, n - 1500) : 2; // mode live: cukup baca baris terbaru
+  const v = s.getRange(st, 1, n - st + 1, 10).getValues(); const tz = Session.getScriptTimeZone(); const pts = [];
+  v.forEach(r => { if (since && Number(r[1]) < since) return; const d = r[2] instanceof Date ? Utilities.formatDate(r[2], tz, 'yyyy-MM-dd') : String(r[2]); if (!date || d === date) pts.push({t: Number(r[1]), trip: r[3], kend: r[4], drv: r[5], lat: Number(r[6]), lng: Number(r[7]), acc: Number(r[8]), spd: Number(r[9])}); });
   return {ok: true, points: pts};
 }
 function posNow_() { // posisi TERAKHIR per kendaraan (3 jam terakhir) — untuk layar driver, tanpa riwayat rute
