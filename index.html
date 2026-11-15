@@ -229,7 +229,7 @@ a.btn{text-decoration:none;display:inline-block}
 /* ============ KONFIGURASI BAWAAN (diisi Super Admin) ============ */
 const SERVER_BAWAAN = 'https://script.google.com/macros/s/AKfycbzyf8NAH4JVWUUaPb9jUy-km5d_i2imOkE2q2QadTt5QZ8xGab_0E3Lzr1ZC9FIeS0/exec';   // URL Web App Apps Script (/exec) — bila diisi, semua perangkat otomatis tersambung
 const KODE_BAWAAN   = 'TA-PKT-5-2026';   // sama dengan KODE_AKSES di Code.gs
-const APP_VER = '1.4.1';
+const APP_VER = '1.4.2';
 const P = 'tpkt_';          // awalan penyimpanan lokal
 
 /* ============ UTIL ============ */
@@ -1141,7 +1141,14 @@ SCREENS.masterkend = main => {
   crud(lk, {menu: 'masterkend', col: 'lokasi', title: 'Titik Lokasi', sub: 'Berdiri di lokasi lalu tekan “Ambil titik dari HP” agar koordinat akurat. Radius = jarak toleransi check-in otomatis.',
     cols: [{t: 'Nama lokasi', k: 'nama'}, {t: 'Latitude', k: 'lat'}, {t: 'Longitude', k: 'lng'}, {t: 'Radius (m)', k: 'radius', cls: 'n'}, {t: 'Peta', f: r => r.lat ? `<a target="_blank" href="https://www.google.com/maps?q=${r.lat},${r.lng}">buka</a>` : '<span class="pill warn">belum ada titik</span>'}],
     rowBtns: r => can('masterkend', 'U') ? `<button class="btn sm or" onclick="ambilTitik('${r.id}')">Ambil titik dari HP</button> ` : '',
-    fields: [{k: 'nama', t: 'Nama lokasi', req: 1}, {k: 'lat', t: 'Latitude', type: 'number'}, {k: 'lng', t: 'Longitude', type: 'number'}, {k: 'radius', t: 'Radius (m)', type: 'number', def: 150}]});
+    fields: [{k: 'nama', t: 'Nama lokasi', req: 1}, {k: 'koord', t: 'Tempel koordinat dari Google Maps', full: 1, hint: 'Klik kanan titik di Google Maps › klik angka paling atas (tersalin) › tempel di sini. Contoh: 0.1735, 117.4851'}, {k: 'lat', t: 'Latitude', hint: 'terisi otomatis dari koordinat di atas'}, {k: 'lng', t: 'Longitude'}, {k: 'radius', t: 'Radius (m)', type: 'number', def: 150}],
+    beforeSave: o => { const src = String(o.koord || '').trim() || (String(o.lat).includes(',') && !o.lng ? String(o.lat) : ''); delete o.koord;
+      if (src) { const m = src.match(/(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)/) || src.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/); if (!m) throw new Error('Format koordinat tidak dikenali. Contoh: 0.1735, 117.4851'); o.lat = m[1]; o.lng = m[2]; }
+      ['lat', 'lng'].forEach(k => { o[k] = String(o[k] ?? '').replace(',', '.').trim(); });
+      if (o.lat === '' && o.lng === '') return; const la = Number(o.lat), ln = Number(o.lng);
+      if (!isFinite(la) || !isFinite(ln) || Math.abs(la) > 90 || Math.abs(ln) > 180) throw new Error('Latitude/longitude tidak valid.');
+      if (Math.abs(la) > 5 || ln < 110 || ln > 125) throw new Error('Koordinat di luar wilayah Kalimantan Timur — mungkin latitude & longitude tertukar.');
+      o.lat = +la.toFixed(6); o.lng = +ln.toFixed(6); }});
 };
 async function ambilTitik(id) { toast('Mengambil posisi…'); try { const p = await getPos(); const l = DB.get('lokasi', id); l.lat = p.lat; l.lng = p.lng; DB.put('lokasi', l); toast(`Titik tersimpan (±${p.acc} m)`); Router.refresh(true); } catch (e) { toast(e.message); } }
 
