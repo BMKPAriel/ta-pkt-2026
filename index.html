@@ -227,9 +227,9 @@ a.btn{text-decoration:none;display:inline-block}
 
 'use strict';
 /* ============ KONFIGURASI BAWAAN (diisi Super Admin) ============ */
-const SERVER_BAWAAN = '';   // URL Web App Apps Script (/exec) — bila diisi, semua perangkat otomatis tersambung
-const KODE_BAWAAN   = '';   // sama dengan KODE_AKSES di Code.gs
-const APP_VER = '1.3.1';
+const SERVER_BAWAAN = 'https://script.google.com/macros/s/AKfycbzyf8NAH4JVWUUaPb9jUy-km5d_i2imOkE2q2QadTt5QZ8xGab_0E3Lzr1ZC9FIeS0/exec';   // URL Web App Apps Script (/exec) — bila diisi, semua perangkat otomatis tersambung
+const KODE_BAWAAN   = 'TA-PKT-5-2026';   // sama dengan KODE_AKSES di Code.gs
+const APP_VER = '1.4.1';
 const P = 'tpkt_';          // awalan penyimpanan lokal
 
 /* ============ UTIL ============ */
@@ -286,6 +286,7 @@ const LS = {
   del(k) { localStorage.removeItem(P + k); }
 };
 const LOCAL = Object.assign({deviceId: uid(), serverUrl: SERVER_BAWAAN, kode: KODE_BAWAAN, adminKey: '', lastPull: 0, lastSync: 0}, LS.get('local', {}));
+if (SERVER_BAWAAN && !LOCAL.serverUrl) LOCAL.serverUrl = SERVER_BAWAAN; if (KODE_BAWAAN && !LOCAL.kode) LOCAL.kode = KODE_BAWAAN;
 function saveLocal() { LS.set('local', LOCAL); }
 saveLocal();
 
@@ -414,7 +415,7 @@ function seedUsers() {
   DB.persist('users');
 }
 function startSession(u) { SES.user = u; SES.last = Date.now(); if (u.peran === 'Driver') LS.set('drvses', u.id); sessionStorage.setItem(P + 'ses', JSON.stringify({id: u.id, t: Date.now()})); }
-function endSession(reason) { if (SES.user) Audit.ev('keluar', reason || ''); SES.user = null; sessionStorage.removeItem(P + 'ses'); LS.del('drvses'); Trip.stopWatch(); renderLogin(reason === 'idle' ? 'Keluar otomatis karena 30 menit tidak ada aktivitas.' : ''); }
+function endSession(reason) { if (SES.user) Audit.ev('keluar', reason || ''); SES.user = null; sessionStorage.removeItem(P + 'ses'); LS.del('drvses'); Trip.stopWatch(); renderLogin(reason === 'idle' ? 'Keluar otomatis karena 30 menit tidak ada aktivitas.' : reason === 'nonaktif' ? 'Akun Anda sudah dinonaktifkan. Hubungi Project Control.' : ''); }
 function restoreSession() { try { const dv = LS.get('drvses', ''); if (dv) { const u = DB.get('users', dv); if (u && u.aktif !== false && u.peran === 'Driver') { SES.user = u; return true; } } const s = JSON.parse(sessionStorage.getItem(P + 'ses') || 'null'); if (s && Date.now() - s.t < 30 * 60e3) { const u = DB.get('users', s.id); if (u && u.aktif !== false) { SES.user = u; return true; } } } catch (e) {} return false; }
 ['click', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, () => { SES.last = Date.now(); if (SES.user) sessionStorage.setItem(P + 'ses', JSON.stringify({id: SES.user.id, t: Date.now()})); }, {passive: true}));
 setInterval(() => { if (SES.user && SES.user.peran !== 'Driver' && Date.now() - SES.last > 30 * 60e3 && !Trip.active()) endSession('idle'); }, 30e3);
@@ -460,7 +461,7 @@ const Sync = {
       // 4. kehadiran (Super Admin tidak dikirim — mode tersembunyi)
       if (SES.user && !isSA()) this.call('presence', {u: SES.user.id, n: SES.user.nama, r: SES.user.peran, m: Router.cur || ''}).catch(() => {});
       this.state = 'ok'; this.msg = '';
-      if (SES.user) { const me = DB.get('users', SES.user.id); if (me) SES.user = me; if (touched.size && !document.querySelector('.modal')) Router.refresh(true); }
+      if (SES.user) { const me = DB.get('users', SES.user.id); if (me && me.aktif === false) { if (Trip.active()) { LS.del('activeTrip'); } setTimeout(() => endSession('nonaktif'), 0); return; } if (me) SES.user = me; if (touched.size && !document.querySelector('.modal')) Router.refresh(true); }
       if (manual) toast('Sinkron selesai' + (touched.size ? ' — data terbaru diterima.' : '.'));
     } catch (e) { this.state = 'err'; this.msg = e.message; if (manual) toast('Sinkron gagal: ' + e.message); }
     this.busy = false; this.ui();
@@ -666,13 +667,13 @@ function renderLogin(msg) {
      <div class="pindots" id="dots">${'<i></i>'.repeat(6)}</div>
      <input id="lgPin" class="inp" type="password" inputmode="numeric" maxlength="6" autocomplete="off" style="text-align:center;letter-spacing:8px;font-size:18px">
      <div class="pinpad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, '⌫', 0, '✓'].map(k => `<button data-k="${k}">${k}</button>`).join('')}</div>
-     <div class="muted small lsetup" style="margin-top:10px">${conn ? `<span>✔ Tersambung ke server proyek</span> · <a href="#" id="lgSetup">ubah</a>` : `HP baru? <a href="#" id="lgSetup">Sambungkan ke server proyek</a>`}</div>
+     <div class="muted small lsetup" style="margin-top:10px">${Sync.configured() ? (users.length > 1 ? '<span>✔ Tersambung ke server proyek</span>' : '<span>⏳ Mengambil daftar pengguna… pastikan ada sinyal</span>') : `HP baru? <a href="#" id="lgSetup">Sambungkan ke server proyek</a>`}</div>
    </div></div>
    <div class="credit">PT. Bumimarga Kharismaperkasa · v${APP_VER} · Design by Ariel Panda</div></div></div>`;
   const pin = $('#lgPin'); const dots = () => $$('#dots i').forEach((d, i) => d.classList.toggle('on', i < pin.value.length));
   pin.addEventListener('input', () => { pin.value = pin.value.replace(/\D/g, '').slice(0, 6); dots(); if (pin.value.length === 6) doLogin(); });
   $$('.pinpad button').forEach(b => b.onclick = () => { const k = b.dataset.k; if (k === '⌫') pin.value = pin.value.slice(0, -1); else if (k === '✓') return doLogin(); else if (pin.value.length < 6) pin.value += k; dots(); if (pin.value.length === 6) doLogin(); });
-  $('#lgSetup').onclick = e => { e.preventDefault(); setupDialog(); };
+  const su = $('#lgSetup'); if (su) su.onclick = e => { e.preventDefault(); setupDialog(); };
   async function doLogin() {
     const u = DB.get('users', $('#lgUser').value); if (!u) return;
     if (u.lockUntil && Date.now() < u.lockUntil) { toast('Akun terkunci sampai ' + timeStr(new Date(u.lockUntil)) + '. Hubungi Super Admin.'); pin.value = ''; dots(); return; }
@@ -689,9 +690,9 @@ function renderLogin(msg) {
 }
 function setupDialog(prefill) {
   const p = prefill || {};
-  modal('Sambungkan ke server proyek', `<p class="muted small">Isi dari tautan setup yang dibagikan Project Control, atau ketik manual.</p>
-   <div class="fld"><label class="f">URL Web App (/exec)</label><input id="suUrl" class="inp" value="${esc(p.url || LOCAL.serverUrl)}"></div>
-   <div class="fld"><label class="f">Kode akses</label><input id="suKode" class="inp" value="${esc(p.kode || LOCAL.kode)}"></div>`,
+  modal('Sambungkan ke server proyek', `<p class="muted small">Untuk HP baru. Cara termudah: buka tautan setup dari Project Control. Isian di sini hanya bila diminta Project Control.</p>
+   <div class="fld"><label class="f">URL Web App (/exec)</label><input id="suUrl" class="inp" value="${esc(p.url || '')}" autocomplete="off"></div>
+   <div class="fld"><label class="f">Kode akses</label><input id="suKode" class="inp" type="password" value="${esc(p.kode || '')}" autocomplete="off"></div>`,
   [['Simpan & ambil data', async () => { LOCAL.serverUrl = $('#suUrl').value.trim(); LOCAL.kode = $('#suKode').value.trim(); LOCAL.lastPull = 0; saveLocal(); closeModal(); toast('Menghubungi server…'); await Sync.run(true); renderLogin(); }]]);
 }
 function changePinDialog(forced) {
@@ -792,7 +793,7 @@ function crud(main, cfg) {
   wrap.innerHTML = `${cfg.title ? `<h1 class="pg">${esc(cfg.title)}</h1><p class="pgsub">${cfg.sub || ''}</p>` : ''}${cfg.top || ''}
     <div class="bar">${canAdd ? '<button class="btn pri" data-x="add">+ Tambah</button>' : ''}<input class="inp" style="max-width:240px" placeholder="Cari…" data-x="q" value="${esc(cfg._q || '')}"><button class="btn" data-x="csv">Ekspor Excel (CSV)</button>${cfg.tools || ''}<span class="muted small">${shown.length} data</span></div>
     <div class="tbl-wrap"><table class="t"><thead><tr>${cfg.cols.map(c => `<th class="${c.cls || ''}">${esc(c.t)}</th>`).join('')}${canEdit || cfg.rowBtns ? '<th></th>' : ''}</tr></thead>
-    <tbody>${shown.map(r => `<tr>${cfg.cols.map(c => `<td class="${c.cls || ''}">${c.f ? c.f(r) : esc(r[c.k])}</td>`).join('')}${canEdit || cfg.rowBtns ? `<td style="white-space:nowrap">${cfg.rowBtns ? cfg.rowBtns(r) : ''}${canEdit ? `<button class="btn sm" data-e="${r.id}">Ubah</button> <button class="btn sm rd" data-d="${r.id}">Hapus</button>` : ''}</td>` : ''}</tr>`).join('') || `<tr><td colspan="${cfg.cols.length + 1}" class="muted c">Belum ada data</td></tr>`}</tbody>${cfg.foot ? cfg.foot(shown) : ''}</table></div>${cfg.bottom || ''}`;
+    <tbody>${shown.map(r => `<tr>${cfg.cols.map(c => `<td class="${c.cls || ''}">${c.f ? c.f(r) : esc(r[c.k])}</td>`).join('')}${canEdit || cfg.rowBtns ? `<td style="white-space:nowrap">${cfg.rowBtns ? cfg.rowBtns(r) : ''}${canEdit ? `<button class="btn sm" data-e="${r.id}">Ubah</button>${cfg.noDel ? '' : ` <button class="btn sm rd" data-d="${r.id}">Hapus</button>`}` : ''}</td>` : ''}</tr>`).join('') || `<tr><td colspan="${cfg.cols.length + 1}" class="muted c">Belum ada data</td></tr>`}</tbody>${cfg.foot ? cfg.foot(shown) : ''}</table></div>${cfg.bottom || ''}`;
   main.appendChild(wrap);
   const save = async o => { if (cfg.beforeSave) await cfg.beforeSave(o); DB.put(cfg.col, o); toast('Tersimpan'); Router.refresh(true); };
   const add = wrap.querySelector('[data-x=add]'); if (add) add.onclick = () => formModal('Tambah — ' + (cfg.title || ''), cfg.fields, cfg.defaults ? cfg.defaults() : null, save);
@@ -1490,11 +1491,11 @@ SCREENS.bobot = main => {
 };
 /* ----- PENGGUNA & PIN ----- */
 const randPin = () => { let p; do { p = String(Math.floor(100000 + Math.random() * 900000)); } while (BAD_PIN.includes(p)); return p; };
-function showPin(u, pin) { modal('PIN awal ' + u.nama, `<p>Berikan PIN ini langsung kepada <b>${esc(u.nama)}</b>. PIN hanya tampil sekali dan wajib diganti saat masuk pertama.</p><div style="font-size:34px;letter-spacing:10px;text-align:center;font-weight:800;color:var(--navy)">${pin}</div>`, [['Kirim via WA', () => window.open('https://wa.me/' + String(u.hp || '').replace(/\D/g, '').replace(/^0/, '62') + '?text=' + encodeURIComponent(`Akun aplikasi Kendali Proyek TA PKT\nNama: ${u.nama}\nPIN awal: ${pin}\nWajib ganti PIN saat masuk pertama.`), '_blank'), 'gr']]); }
+function showPin(u, pin) { modal('PIN awal ' + u.nama, `<p>Catat PIN ini dan berikan langsung kepada <b>${esc(u.nama)}</b>. PIN hanya tampil sekali dan wajib diganti saat masuk pertama.</p><div style="font-size:34px;letter-spacing:10px;text-align:center;font-weight:800;color:var(--navy)">${pin}</div><p class="small muted">Lupa mencatat? Tekan Reset PIN untuk membuat PIN baru.</p>`, [['Sudah dicatat', () => closeModal()]], false); }
 SCREENS.users = main => {
-  crud(main, {menu: 'users', col: 'users', title: 'Pengguna & PIN', sub: 'Tambah akun, atur peran, reset PIN, buka kunci. Driver otomatis hanya melihat menu Trip Saya & Log BBM.', sort: (a, b) => ROLES.indexOf(a.peran) - ROLES.indexOf(b.peran),
+  crud(main, {menu: 'users', col: 'users', title: 'Pengguna & PIN', sub: 'Tambah akun, atur peran, reset PIN, buka kunci. Pengguna yang resign cukup dinonaktifkan — riwayat datanya tetap tersimpan. Driver otomatis hanya melihat menu Trip Saya & Log BBM.', sort: (a, b) => ROLES.indexOf(a.peran) - ROLES.indexOf(b.peran),
     cols: [{t: 'Nama', k: 'nama'}, {t: 'Jabatan', k: 'jabatan'}, {t: 'Peran', f: r => pill(r.peran, {'Super Admin': 'info', Driver: 'warn'})}, {t: 'No. HP', k: 'hp'}, {t: 'Batas vessel', k: 'vessel'}, {t: 'Status', f: r => r.aktif === false ? '<span class="pill bad">nonaktif</span>' : r.lockUntil > Date.now() ? '<span class="pill bad">terkunci</span>' : r.mustChange ? '<span class="pill warn">belum ganti PIN</span>' : '<span class="pill ok">aktif</span>'}, {t: 'Masuk terakhir', f: r => r.lastLogin ? dtID(r.lastLogin) : '—'}],
-    rowBtns: r => `<button class="btn sm or" onclick="resetPin('${r.id}')">Reset PIN</button> ${r.lockUntil > Date.now() ? `<button class="btn sm" onclick="unlockU('${r.id}')">Buka kunci</button> ` : ''}`,
+    noDel: true, rowBtns: r => `<button class="btn sm or" onclick="resetPin('${r.id}')">Reset PIN</button> ${r.lockUntil > Date.now() ? `<button class="btn sm" onclick="unlockU('${r.id}')">Buka kunci</button> ` : ''}${r.id !== SES.user.id ? (r.aktif === false ? `<button class="btn sm gr" onclick="setAktif('${r.id}',true)">Aktifkan</button> ` : `<button class="btn sm rd" onclick="setAktif('${r.id}',false)">Nonaktifkan</button> `) : ''}`,
     defaults: () => ({peran: 'Supervisor/Foreman', aktif: 'true'}),
     fields: [{k: 'nama', t: 'Nama', req: 1}, {k: 'jabatan', t: 'Jabatan'}, {k: 'peran', t: 'Peran', type: 'select', opts: ROLES}, {k: 'hp', t: 'No. HP (untuk kirim PIN via WA)'}, {k: 'vessel', t: 'Batasi input progres ke vessel', type: 'select', opts: () => [['', 'Semua vessel'], ...VES()]}, {k: 'aktif', t: 'Status', type: 'select', opts: [['true', 'Aktif'], ['false', 'Nonaktif']]}],
     beforeSave: o => {
@@ -1506,6 +1507,7 @@ SCREENS.users = main => {
   $$('[data-d]').forEach(b => { if (b.dataset.d === SES.user.id) b.remove(); });
 };
 function resetPin(id) { confirmBox('Reset PIN pengguna ini? PIN lama tidak berlaku lagi.', () => { const u = DB.get('users', id); const pin = randPin(); u.salt = uid(); u.pin = hashPin(pin, u.salt); u.mustChange = true; u.fail = 0; u.lockUntil = 0; DB.put('users', u, {noAudit: true}); Audit.ev('reset PIN', u.nama); Router.refresh(true); setTimeout(() => showPin(u, pin), 200); }); }
+function setAktif(id, on) { const go = () => { const u = DB.get('users', id); u.aktif = on; if (on) { u.fail = 0; u.lockUntil = 0; } DB.put('users', u, {noAudit: true}); Audit.ev(on ? 'aktifkan pengguna' : 'nonaktifkan pengguna', u.nama); toast(on ? u.nama + ' aktif kembali' : u.nama + ' dinonaktifkan — tidak bisa masuk lagi'); Sync.run(); Router.refresh(true); }; on ? go() : confirmBox('Nonaktifkan pengguna ini (resign / berhenti)? Ia tidak bisa masuk lagi; riwayat datanya tetap tersimpan.', go); }
 function unlockU(id) { const u = DB.get('users', id); u.lockUntil = 0; u.fail = 0; DB.put('users', u, {noAudit: true}); Audit.ev('buka kunci', u.nama); toast('Kunci dibuka'); Router.refresh(true); }
 /* ----- IZIN AKSES ----- */
 SCREENS.izin = main => {
