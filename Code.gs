@@ -26,7 +26,7 @@ function doPost(e) {
       case 'presence': return out_(presence_(b));
       case 'presence_list': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(presenceList_());
       case 'pos_now': return out_(posNow_());
-      case 'upload': return out_(upload_(b.name, b.data));
+      case 'upload': return out_(upload_(b.name, b.data, b.folder));
       case 'pin_set': lock.waitLock(25000); return out_(pinSet_(b.items || []));
       case 'pin_list': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(pinList_());
       case 'stats': return out_(stats_());
@@ -126,9 +126,11 @@ function pinList_() {
   return {ok: true, list: s.getRange(2, 1, n - 1, 5).getValues().map(r => ({uid: String(r[0]), nama: r[1], pin: ('000000' + String(r[2]).replace(/\D/g, '')).slice(-6), t: Number(r[4])}))};
 }
 /* ---------- foto ---------- */
-function upload_(name, data) {
+function sub_(parent, nama) { const it = parent.getFoldersByName(nama); return it.hasNext() ? it.next() : parent.createFolder(nama); }
+function upload_(name, data, folder) {
   const m = String(data || '').match(/^data:(.+?);base64,(.+)$/); if (!m) return {ok: false, error: 'Foto tidak valid'};
-  const it = DriveApp.getFoldersByName(FOLDER_FOTO); const f = it.hasNext() ? it.next() : DriveApp.createFolder(FOLDER_FOTO);
+  const it = DriveApp.getFoldersByName(FOLDER_FOTO); let f = it.hasNext() ? it.next() : DriveApp.createFolder(FOLDER_FOTO);
+  String(folder || '').split('/').map(x => x.trim().replace(/[\\:*?"<>|]/g, '_')).filter(Boolean).slice(0, 3).forEach(x => { f = sub_(f, x); }); // mis. Dokumentasi Progres/2026-11-17
   const file = f.createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], String(name || 'foto.jpg').replace(/[^\w.\-]/g, '_')));
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return {ok: true, url: 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w1200'};
