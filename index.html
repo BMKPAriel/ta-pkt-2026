@@ -345,7 +345,7 @@ h3.pg2{margin:16px 0 8px;color:var(--navy,#0e2747)}
 /* ============ KONFIGURASI BAWAAN (diisi Super Admin) ============ */
 const SERVER_BAWAAN = 'https://script.google.com/macros/s/AKfycbzyf8NAH4JVWUUaPb9jUy-km5d_i2imOkE2q2QadTt5QZ8xGab_0E3Lzr1ZC9FIeS0/exec';   // URL Web App Apps Script (/exec) — bila diisi, semua perangkat otomatis tersambung
 const KODE_BAWAAN   = 'TA-PKT-5-2026';   // sama dengan KODE_AKSES di Code.gs
-const APP_VER = '2.9.0';
+const APP_VER = '2.9.1';
 const P = 'tpkt_';          // awalan penyimpanan lokal
 
 /* ============ UTIL ============ */
@@ -447,7 +447,7 @@ const DEF_SET = {
     {id: '120-C', D: 5000, L: 24484, surf: 438.79, aer: 2218.65, cover: 448.77, scaff: 3},
     {id: '146-D', D: 3000, L: 12420, surf: 136.57, aer: 695.88, cover: 141.84, scaff: 2},
     {id: '147-D', D: 1850, L: 7900, surf: 53.33, aer: 274.92, cover: 56.67, scaff: 1}],
-  bobot: [{id: 'scaff', n: 'Pemasangan scaffolding & inspeksi', w: 10, b: 'pct'}, {id: 'bcov', n: 'Pembongkaran cover insulation cold existing', w: 4, b: 'surf'}, {id: 'bins', n: 'Pembongkaran insulation existing', w: 8, b: 'surf'}, {id: 'brush', n: 'Membersihkan permukaan vessel dengan brush', w: 8, b: 'surf'}, {id: 'paint', n: 'Repainting / coating', w: 10, b: 'surf'}, {id: 'aer', n: 'Pemasangan insulation aerogel 5 lapis', w: 35, b: 'aer'}, {id: 'seal', n: 'Sealing filament & foil tape', w: 5, b: 'cover'}, {id: 'jack', n: 'Pemasangan cover metal jacketing, band & screw', w: 15, b: 'cover'}, {id: 'qc', n: 'Inspeksi QC PKT & serah terima', w: 2, b: 'ls'}, {id: 'dism', n: 'Pembongkaran scaffolding', w: 3, b: 'pct'}], tahapVer: 2, waJudul: 'Project Insulation PT. MPJ.',
+  bobot: [{id: 'scaff', n: 'Pasang scaffolding', w: 10, b: 'pct'}, {id: 'bong', n: 'Bongkar isolasi', w: 12, b: 'surf'}, {id: 'brpt', n: 'Brushing & painting', w: 18, b: 'surf'}, {id: 'aer', n: 'Pasang Armagel', w: 40, b: 'aer'}, {id: 'jack', n: 'Pasang metal jacketing', w: 17, b: 'cover'}, {id: 'dism', n: 'Lepas scaffolding', w: 3, b: 'pct'}], tahapVer: 3, waPT: 'PT. MPJ', waUrut: ['146-D', '147-D', '120-C'], waJudul: 'Project Insulation PT. MPJ.',
   bobotLock: false, bobotEff: '',
   jadwal: {jeda: 2, urutan: ['120-C', '146-D', '147-D'], tim: [
     {n: 'Bongkar insulasi lama', tim: 'Tim 1 — Bongkar', org: 20, prod: 3, b: 'surf', lag: 0, ff: 0},
@@ -1071,7 +1071,7 @@ SCREENS.progres = main => {
     cols: [{t: 'Tanggal', f: r => tglID(r.tgl)}, {t: 'Vessel', k: 'vessel'}, {t: 'Tahap', f: r => esc((s.bobot[r.tahap] || {}).n || '')}, {t: 'Volume', cls: 'n', f: r => fmt(r.vol, 2)}, {t: 'Keterangan', k: 'ket'}, {t: 'Foto', f: r => r.foto ? (/^https?:/.test(r.foto) ? `<a href="${esc(r.foto)}" target="_blank">lihat</a>` : '✓') : ''}, {t: 'Oleh', f: r => esc(nameOf(r._by))}],
     defaults: () => ({tgl: today, vessel: vs[0]}),
     fields: [{k: 'tgl', t: 'Tanggal', type: 'date', req: 1}, {k: 'vessel', t: 'Vessel', type: 'select', opts: vs}, {k: 'tahap', t: 'Tahap', type: 'select', opts: () => s.bobot.map((b, i) => [i, `${i + 1}. ${b.n} (${stageUnit(b.b)})`])}, {k: 'vol', t: 'Volume selesai hari ini', type: 'number', req: 1}, {k: 'ket', t: 'Keterangan / kendala', type: 'textarea', full: 1}, {k: 'foto', t: 'Foto dokumentasi', type: 'photo', full: 1}],
-    beforeSave: o => { o.tahap = Number(o.tahap); o.tv = 2; if (o.vol < 0) throw new Error('Volume tidak boleh negatif.'); }});
+    beforeSave: o => { o.tahap = Number(o.tahap); o.tv = 3; if (o.vol < 0) throw new Error('Volume tidak boleh negatif.'); }});
 };
 SCREENS.jadwal = main => {
   const s = S(), sch = schedule(), J = s.jadwal;
@@ -2209,14 +2209,14 @@ function lhShare(text) { (navigator.clipboard ? navigator.clipboard.writeText(te
 
 /* ---- layar input ---- */
 SCREENS.lapharian = main => {
-  const st = SCREENS.lapharian; st.tgl = st.tgl || todayStr(); st.v = st.v || S().vessels[0].id;
+  const st = SCREENS.lapharian; st.tgl = st.tgl || todayStr(); st.v = st.v || waUrut()[0];
   const s = S(), bob = bobotAt(st.tgl), rec = lhGet(st.tgl), prev = lhPrev(st.tgl), base = rec || prev; const u = SES.user;
   const edit = rec ? (can('lapharian', 'U') || rec._by === u.id) : can('lapharian', 'I');
   const v0 = (k, d = '') => rec ? (rec[k] ?? d) : d;
   head(main, 'Laporan Harian', 'Isi sesuai form lapangan. Posisi (%) per tahap otomatis menggerakkan progres, kurva-S, DPR & Weekly Report.');
   main.insertAdjacentHTML('beforeend', `<div class="bar"><button class="btn" id="lhPv">◀</button><input type="date" class="inp" id="lhT" value="${st.tgl}" style="max-width:170px"><button class="btn" id="lhNx">▶</button>
      ${rec ? `<span class="pill ok">tersimpan · ${esc(nameOf(rec._by))}</span>` : `<span class="pill warn">belum ada laporan</span>${prev ? `<span class="small muted">posisi terisi dari laporan ${tglID(prev.tgl)}</span>` : ''}`}<span class="sp" style="flex:1"></span>
-     ${rec ? '<button class="btn" id="lhPr">🖨 Cetak form</button><button class="btn gr" id="lhWa">Kirim ke WA</button><button class="btn" id="lhCp">Salin teks WA</button>' : ''}</div>
+     ${rec ? '<button class="btn" id="lhPr">🖨 Cetak form</button><button class="btn gr" id="lhWa">WA: Daily Report</button><button class="btn" id="lhCp">Salin</button><button class="btn gr" id="lhWa2">WA: Progres per vessel</button><button class="btn" id="lhCp2">Salin</button>' : ''}</div>
    <fieldset ${edit ? '' : 'disabled'} class="lhfs">
    <div class="card"><div class="grid g4">
      <div class="fld"><label class="f">No. laporan</label><input class="inp" id="lhNo" value="${esc(v0('no', 'DPR/BMKP/TA-P5/' + String(Math.max(1, lhHari(st.tgl))).padStart(3, '0')))}"></div>
@@ -2225,8 +2225,8 @@ SCREENS.lapharian = main => {
      <div class="fld"><label class="f">Lembur (kosongkan bila tidak ada)</label><div style="display:flex;gap:6px"><input class="inp" type="time" id="lhL1" value="${esc(v0('l1'))}"><input class="inp" type="time" id="lhL2" value="${esc(v0('l2'))}"></div></div></div>
      <label class="f">Kondisi cuaca</label><div class="seg" id="lhCu">${['Cerah', 'Berawan', 'Hujan'].map(x => `<button type="button" data-c="${x}" class="${v0('cuaca') === x ? 'on' : ''}">${x === 'Cerah' ? '☀️' : x === 'Berawan' ? '⛅' : '🌧️'} ${x}</button>`).join('')}</div></div>
    <div class="card"><h3>Progres pekerjaan per vessel</h3>
-     <div class="vtabs">${s.vessels.map(v => `<button type="button" data-v="${v.id}" class="${st.v === v.id ? 'on' : ''}">VESSEL ${v.id}<small id="vt_${v.id}"></small></button>`).join('')}</div>
-     ${s.vessels.map(v => `<div class="vpan" data-vp="${v.id}" ${st.v === v.id ? '' : 'hidden'}>${bob.map((b, i) => { const p = lhPos(base, v.id, i), pp = lhPos(prev, v.id, i), d = rec ? lhDone(rec, v.id, i) : false, k = rec ? lhKet(rec, v.id, i) : ''; const X = rec ? lhX(rec, v.id, i) : (pp >= 100 ? {} : {s: ['plan', 'replan', 'waiting'].includes(lhX(prev, v.id, i).s) ? lhX(prev, v.id, i).s : '', pd: lhX(prev, v.id, i).pd}); return `<div class="lhr ${X.s ? 'st-' + X.s : ''}" data-v="${v.id}" data-i="${i}">
+     <div class="vtabs">${waUrut().map(id => s.vessels.find(x => x.id === id)).map(v => `<button type="button" data-v="${v.id}" class="${st.v === v.id ? 'on' : ''}">VESSEL ${v.id}<small id="vt_${v.id}"></small></button>`).join('')}</div>
+     ${waUrut().map(id => s.vessels.find(x => x.id === id)).map(v => `<div class="vpan" data-vp="${v.id}" ${st.v === v.id ? '' : 'hidden'}>${bob.map((b, i) => { const p = lhPos(base, v.id, i), pp = lhPos(prev, v.id, i), d = rec ? lhDone(rec, v.id, i) : false, k = rec ? lhKet(rec, v.id, i) : ''; const X = rec ? lhX(rec, v.id, i) : (pp >= 100 ? {} : {s: ['plan', 'replan', 'waiting'].includes(lhX(prev, v.id, i).s) ? lhX(prev, v.id, i).s : '', pd: lhX(prev, v.id, i).pd}); return `<div class="lhr ${X.s ? 'st-' + X.s : ''}" data-v="${v.id}" data-i="${i}">
        <div class="lhn1"><b>${i + 1}. ${esc(b.n)}</b><span class="small muted">sebelumnya ${pp}%${lhStTxt(lhX(prev, v.id, i)) && !rec ? ' · kemarin: ' + esc(lhStTxt(lhX(prev, v.id, i))) : ''}</span></div>
        <div class="seg lhst">${LH_ST.map(x => `<button type="button" data-st="${x[0]}" class="${X.s === x[0] ? 'on' : ''}">${x[1]}</button>`).join('')}<input type="date" class="inp pd" value="${esc(X.pd || '')}" title="Tanggal plan / re-plan" ${['plan', 'replan'].includes(X.s) ? '' : 'hidden'}></div>
        <label class="lhck"><input type="checkbox" class="ck" ${d ? 'checked' : ''}> Dikerjakan hari ini</label>
@@ -2268,7 +2268,7 @@ SCREENS.lapharian = main => {
       (prog[v] = prog[v] || {})[i] = {d: r.querySelector('.ck').checked || stt === 'close' || stt === 'continue', p, k: r.querySelector('.kt').value.trim(), s: stt, pd: ['plan', 'replan'].includes(stt) ? r.querySelector('.pd').value : ''}; });
     const mp = {}; $$('.mp').forEach(i => { if (i.value !== '') mp[i.dataset.t] = nnum(i.value); }); const hse = {}; $$('[data-h]').forEach(c => hse[c.dataset.h] = c.checked);
     const cu = $('#lhCu .on'), qc = $('#lhQc .on');
-    const doSave = () => { const r = DB.put('lapharian', Object.assign({}, rec || {}, {id: lhId(st.tgl), tgl: st.tgl, no: $('#lhNo').value.trim(), j1: $('#lhJ1').value, j2: $('#lhJ2').value, l1: $('#lhL1').value, l2: $('#lhL2').value, cuaca: cu ? cu.dataset.c : '', prog, mp, hse, qc: qc ? qc.dataset.q : '', kegiatan: $('#lhKg').value.trim(), kendala: $('#lhKd').value.trim(), rencana: $('#lhRe').value.trim(), catatan: $('#lhCt').value.trim(), pelapor: $('#lhPl').value.trim(), jabatan: $('#lhJb').value.trim(), tv: 2}));
+    const doSave = () => { const r = DB.put('lapharian', Object.assign({}, rec || {}, {id: lhId(st.tgl), tgl: st.tgl, no: $('#lhNo').value.trim(), j1: $('#lhJ1').value, j2: $('#lhJ2').value, l1: $('#lhL1').value, l2: $('#lhL2').value, cuaca: cu ? cu.dataset.c : '', prog, mp, hse, qc: qc ? qc.dataset.q : '', kegiatan: $('#lhKg').value.trim(), kendala: $('#lhKd').value.trim(), rencana: $('#lhRe').value.trim(), catatan: $('#lhCt').value.trim(), pelapor: $('#lhPl').value.trim(), jabatan: $('#lhJb').value.trim(), tv: 3}));
       toast('Laporan harian tersimpan — kurva-S & weekly diperbarui'); Sync.run(); Router.refresh(); return r; };
     if (warn.length) confirmBox('Posisi lebih kecil dari laporan sebelumnya:\n' + warn.slice(0, 6).join('\n') + '\n\nTetap simpan?', doSave); else doSave();
   };
@@ -2276,6 +2276,7 @@ SCREENS.lapharian = main => {
   const pr = $('#lhPr'); if (pr) pr.onclick = () => { SCREENS.dpr.tgl = st.tgl; Router.go('dpr'); setTimeout(() => window.print(), 400); };
   const wa = $('#lhWa'); if (wa) wa.onclick = () => window.open('https://wa.me/?text=' + encodeURIComponent(w()), '_blank');
   const cp = $('#lhCp'); if (cp) cp.onclick = () => lhShare(w());
+  const w2 = () => lhWAProg(lhGet(st.tgl)); const wa2 = $('#lhWa2'); if (wa2) wa2.onclick = () => window.open('https://wa.me/?text=' + encodeURIComponent(w2()), '_blank'); const cp2 = $('#lhCp2'); if (cp2) cp2.onclick = () => lhShare(w2());
 };
 
 /* ---- DPR = cetak form lapangan ---- */
@@ -2283,7 +2284,7 @@ SCREENS.dpr = main => {
   const st = SCREENS.dpr; st.tgl = st.tgl || todayStr(); const rec = lhGet(st.tgl); const pr = progressAt(st.tgl), pl = planAt(st.tgl), prY = progressAt(addDays(st.tgl, -1));
   head(main, 'Daily Progress Report', 'Cetak form harian (A4 landscape) dari menu Laporan Harian, lengkap dengan pengesahan 3 pihak.');
   main.insertAdjacentHTML('beforeend', `<div class="bar noprint"><button class="btn" id="dpPv">◀</button><input type="date" class="inp" id="dpT" value="${st.tgl}" style="max-width:170px"><button class="btn" id="dpNx">▶</button>
-     ${rec ? `<button class="btn pri" onclick="window.print()">🖨 Cetak / Simpan PDF</button><a class="btn gr" target="_blank" href="https://wa.me/?text=${encodeURIComponent(lhWA(rec))}">Kirim ke WA</a><button class="btn" id="dpCp">Salin teks WA</button>` : ''}${can('lapharian', 'I') ? `<button class="btn or" id="dpEd">${rec ? '✏️ Ubah laporan' : '+ Isi laporan harian'}</button>` : ''}</div>
+     ${rec ? `<button class="btn pri" onclick="window.print()">🖨 Cetak / Simpan PDF</button><a class="btn gr" target="_blank" href="https://wa.me/?text=${encodeURIComponent(lhWA(rec))}">WA: Daily Report</a><a class="btn gr" target="_blank" href="https://wa.me/?text=${encodeURIComponent(lhWAProg(rec))}">WA: Progres per vessel</a><button class="btn" id="dpCp">Salin teks WA</button>` : ''}${can('lapharian', 'I') ? `<button class="btn or" id="dpEd">${rec ? '✏️ Ubah laporan' : '+ Isi laporan harian'}</button>` : ''}</div>
    <div class="grid g4 noprint" style="margin-bottom:12px"><div class="kpi"><div class="l">Rencana kumulatif</div><div class="v">${pct(pl, 2)}</div></div><div class="kpi or"><div class="l">Aktual kumulatif</div><div class="v">${pct(pr.total, 2)}</div></div><div class="kpi ${pr.total - pl < 0 ? 'rd' : 'gr'}"><div class="l">Deviasi</div><div class="v">${pct(pr.total - pl, 2)}</div></div><div class="kpi gr"><div class="l">Progres hari ini</div><div class="v">${pct(pr.total - prY.total, 2)}</div></div></div>
    ${rec ? lhPrintHTML(rec) : `<div class="card"><p>Belum ada laporan harian untuk <b>${tglID(st.tgl)}</b>.</p></div>`}`);
   const go = d => { st.tgl = d || todayStr(); Router.refresh(); };
@@ -2692,23 +2693,38 @@ function drvRute(m) {
   m.innerHTML = `${drvBack()}<h2 class="dh">Rute harian saya</h2>${r ? (r.sesi || []).map(se => `<div class="dcardr rv"><b>${esc(se.jam)}</b><span class="muted">${esc(se.judul)}</span><ol>${(se.s || []).map((n, i) => { const l = lokByNama(n); return `<li><i style="background:${LCOL(n)}">${i + 1}</i><div><b>${esc(n)}</b>${se.ket && se.ket[i] ? `<small>${esc(se.ket[i])}</small>` : ''}${se.loop && i === +se.loop[1] ? `<em>⟲ ${esc(se.loop[2])}</em>` : ''}${l && l.lat ? `<a class="small" target="_blank" href="https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}">🧭 petunjuk arah</a>` : ''}</div></li>`; }).join('')}</ol>${se.opsi ? `<small>${esc(se.opsi)}</small>` : ''}</div>`).join('') : '<p class="dhint">Kendaraan Anda tidak punya rute tetap.</p>'}`;
 }
 
-/* ============ TAHAP PEKERJAAN v2 — disamakan dengan urutan laporan WA lapangan ============
-   Lama (9): scaffolding · bongkar insulasi lama · SP-3 · repainting · aerogel · sealing · jacketing · QC · dismantle
-   Baru (10): bongkar insulasi lama dipecah → bongkar cover + bongkar insulation. Data lama dipindah otomatis. */
-const TV = 2;
-const tvMap = o => o === 0 ? [0] : o === 1 ? [1, 2] : [o + 1];
+/* ============ TAHAP PEKERJAAN v3 — 6 tahap, sama dengan laporan progres WA lapangan ============
+   1 Pasang scaffolding · 2 Bongkar isolasi · 3 Brushing & painting · 4 Pasang Armagel · 5 Pasang metal jacketing · 6 Lepas scaffolding
+   Data versi lama (9 tahap / 10 tahap) dipindah otomatis: posisi digabung sesuai bobot. */
+const TV = 3;
+const TMAP = {1: [0, 1, 2, 2, 3, 3, 4, 4, 5], 2: [0, 1, 1, 2, 2, 3, 3, 4, 4, 5]};
+const TW = {1: [10, 12, 8, 10, 35, 5, 15, 2, 3], 2: [10, 4, 8, 8, 10, 35, 5, 15, 2, 3]};
+const TB = {1: ['pct', 'surf', 'surf', 'surf', 'aer', 'cover', 'cover', 'ls', 'pct'], 2: ['pct', 'surf', 'surf', 'surf', 'surf', 'aer', 'cover', 'cover', 'ls', 'pct']};
+const tvMap = (ver, o) => TMAP[ver][o];
 function tahapMigrasi() {
-  const s = S(); let ch = 0;
-  if (!s.tahapVer && Array.isArray(s.bobot) && s.bobot.length === 9 && !s.bobot.some(b => b.id)) {
+  let s = S(); let ch = 0;
+  const ver = s.tahapVer === 2 ? 2 : (!s.tahapVer && Array.isArray(s.bobot) && s.bobot.length === 9) ? 1 : 0;
+  if (ver) {
     const ow = s.bobot.map(b => nnum(b.w)); const nb = JSON.parse(JSON.stringify(DEF_SET.bobot));
-    const remapW = w => { const n = []; w.forEach((x, o) => { const t = tvMap(o); if (t.length === 2) { n[t[0]] = Math.round(nnum(x) / 3 * 100) / 100; n[t[1]] = Math.round((nnum(x) - n[t[0]]) * 100) / 100; } else n[t[0]] = nnum(x); }); return n; };
-    remapW(ow).forEach((w, i) => { if (nb[i]) nb[i].w = w; });
-    s.bobot = nb; (s.bobotHist || []).forEach(h => { if (Array.isArray(h.w) && h.w.length === 9) h.w = remapW(h.w); });
-    s.tahapVer = TV; if (!s.waJudul) s.waJudul = DEF_SET.waJudul; saveS(s); ch++;
+    const sumW = (w, v) => { const n = nb.map(() => 0); w.forEach((x, o) => { const t = TMAP[v][o]; if (t !== undefined) n[t] = Math.round((n[t] + nnum(x)) * 100) / 100; }); return n; };
+    if (ow.length === TMAP[ver].length) sumW(ow, ver).forEach((w, i) => { nb[i].w = w; });
+    s.tahapOldW = Object.assign({}, s.tahapOldW || {}, {[ver]: ow.length === TMAP[ver].length ? ow : TW[ver]}); if (ver === 2 && !s.tahapOldW[1]) s.tahapOldW[1] = TW[1];
+    s.bobot = nb; (s.bobotHist || []).forEach(h => { if (Array.isArray(h.w)) { const v = h.w.length === 9 ? 1 : h.w.length === 10 ? 2 : 0; if (v) h.w = sumW(h.w, v); } });
+    s.tahapVer = TV; ['waPT', 'waUrut', 'waJudul'].forEach(k => { if (s[k] === undefined) s[k] = DEF_SET[k]; }); saveS(s); ch++; s = S();
   }
-  if ((S().tahapVer || 0) < TV) return ch;
-  DB.all('progres').filter(r => !r.tv).forEach(r => { const t = tvMap(nnum(r.tahap)); if (t.length === 2 && !DB.get('progres', r.id + '_cov')) DB.put('progres', Object.assign({}, r, {id: r.id + '_cov', tahap: t[0], tv: TV, ket: ((r.ket || '') + ' (dari bongkar insulasi lama)').trim()}), {noAudit: true}); DB.put('progres', {id: r.id, tahap: t[t.length - 1], tv: TV}, {noAudit: true}); ch++; });
-  DB.all('lapharian').filter(r => !r.tv).forEach(r => { const P = {}; Object.entries(r.prog || {}).forEach(([v, o]) => { P[v] = {}; Object.entries(o || {}).forEach(([k, x]) => tvMap(+k).forEach(n => { P[v][n] = Object.assign({}, x); })); }); DB.put('lapharian', {id: r.id, prog: P, tv: TV}, {noAudit: true}); ch++; });
+  if ((s.tahapVer || 0) < TV) return ch;
+  const oldW = v => (s.tahapOldW && s.tahapOldW[v]) || TW[v];
+  const recVer = r => r.tv === 2 ? 2 : !r.tv ? 1 : 0;
+  DB.all('progres').filter(r => recVer(r)).forEach(r => { const v = recVer(r), o = nnum(r.tahap), n = TMAP[v][o]; if (n === undefined) return;
+    const vs = s.vessels.find(x => x.id === r.vessel) || {}; const wN = TMAP[v].reduce((a, t, k) => a + (t === n ? nnum(oldW(v)[k]) : 0), 0) || 1;
+    const vo = stageVol(vs, TB[v][o]) || 1, vn = stageVol(vs, s.bobot[n].b) || 1;
+    DB.put('progres', {id: r.id, tahap: n, vol: Math.round(nnum(r.vol) * nnum(oldW(v)[o]) / wN * vn / vo * 100) / 100, tv: TV, volAsal: r.vol}, {noAudit: true}); ch++; });
+  DB.all('lapharian').filter(r => recVer(r) && r.prog).forEach(r => { const v = recVer(r); const P = {};
+    Object.entries(r.prog || {}).forEach(([vid, o]) => { const N = {}; TMAP[v].forEach((n, k) => { const x = (o || {})[k] || {}; const w = nnum(oldW(v)[k]); const g = N[n] = N[n] || {pw: 0, w: 0, d: false, k: [], s: [], pd: ''};
+        g.pw += nnum(x.p) * w; g.w += w; g.d = g.d || !!x.d; if (x.k && !g.k.includes(x.k)) g.k.push(x.k); g.s.push(x.s || ''); if (x.pd && x.pd > g.pd) g.pd = x.pd; });
+      P[vid] = {}; Object.entries(N).forEach(([n, g]) => { const st = g.s.every(z => z === 'close') ? 'close' : ['waiting', 'continue', 'replan', 'plan'].find(z => g.s.includes(z)) || '';
+        P[vid][n] = {p: g.w ? Math.round(g.pw / g.w) : 0, d: g.d, k: g.k.join('; '), s: st, pd: ['plan', 'replan'].includes(st) ? g.pd : ''}; }); });
+    DB.put('lapharian', {id: r.id, prog: P, tv: TV}, {noAudit: true}); ch++; });
   return ch;
 }
 try { tahapMigrasi(); } catch (e) { console.warn('migrasi tahap', e); }
@@ -2718,11 +2734,11 @@ function planCurve() {
   const s = S(), wv = vesselWeights(), bob = s.bobot, sch = schedule(); const win = {};
   sch.rows.forEach(r => win[r.v + '|' + r.k] = r);
   const half = (w, second) => { const h = Math.max(w.st, Math.floor((w.st + w.en) / 2)); return second ? [w.en > h ? h + 1 : h, w.en] : [w.st, h]; };
-  const byId = (v, id) => { const g = k => win[v + '|' + k]; switch (id) {
-    case 'scaff': return [-13, 0]; case 'bcov': return half(g(0), false); case 'bins': return [g(0).st, g(0).en];
-    case 'brush': return half(g(1), false); case 'paint': return half(g(1), true); case 'aer': case 'seal': return [g(2).st, g(2).en];
-    case 'jack': return [g(4).st, g(4).en]; case 'qc': return [g(3).st, g(3).en]; default: return [g(5).st, g(5).en]; } };
-  const LEG = ['scaff', 'bins', 'brush', 'paint', 'aer', 'seal', 'jack', 'qc', 'dism'];
+  const byId = (v, id) => { const g = k => win[v + '|' + k]; const U = (a, b) => [Math.min(a[0], b[0]), Math.max(a[1], b[1])]; switch (id) {
+    case 'scaff': return [-13, 0]; case 'bong': case 'bcov': case 'bins': return [g(0).st, g(0).en];
+    case 'brpt': return [g(1).st, g(1).en]; case 'brush': return half(g(1), false); case 'paint': return half(g(1), true); case 'aer': case 'seal': return [g(2).st, g(2).en];
+    case 'jack': return U([g(4).st, g(4).en], [g(3).st, g(3).en]); case 'qc': return [g(3).st, g(3).en]; default: return [g(5).st, g(5).en]; } };
+  const LEG = ['scaff', 'bong', 'brpt', 'aer', 'jack', 'dism'];
   const daily = {}; const minD = -13, maxD = sch.scEnd;
   s.vessels.forEach(v => bob.forEach((b, i) => { const [a, e] = byId(v.id, b.id || LEG[i] || 'dism'); const len = Math.max(1, e - a + 1); for (let d = a; d <= e; d++) daily[d] = (daily[d] || 0) + (wv[v.id] || 0) * nnum(b.w) / 100 / len; }));
   const out = []; let c = 0; for (let d = minD; d <= maxD; d++) { c += daily[d] || 0; out.push({d, date: addDays(s.proj.mulai, d - 1), plan: Math.min(1, c)}); }
@@ -2743,7 +2759,7 @@ function lhWA(rec) {
   if (!rec) return ''; const s = S(), bob = bobotAt(rec.tgl); const L = [];
   L.push('Actual Daily Report'); L.push(`Tanggal : ${tglID(rec.tgl)} (Day-${lhHari(rec.tgl)})`); L.push(s.waJudul || 'Project Insulation PT. MPJ.'); L.push('');
   L.push('Man Power :'); LH_TIM.forEach(t => { const n = nnum((rec.mp || {})[t[0]]); if (n) L.push(`${t[2]} : ${n} Orang`); }); L.push(''); L.push(`Total MP : ${lhMp(rec)} Orang`);
-  const urut = (rec.vOrder && rec.vOrder.length ? rec.vOrder : s.vessels.map(v => v.id)).filter(id => s.vessels.some(v => v.id === id));
+  const urut = waUrut();
   urut.forEach(vid => { const rows = []; bob.forEach((b, i) => { const t = lhStTxt(lhX(rec, vid, i)); if (t) rows.push(`${rows.length + 1}. ${b.n} (${t})`); });
     if (rows.length) { L.push(''); L.push(`Insulation Vesel ${vid} :`); rows.forEach(r => L.push(r)); } });
   if (rec.kegiatan) { L.push(''); L.push('Kegiatan lain :'); rec.kegiatan.split('\n').map(x => x.trim()).filter(Boolean).forEach(x => L.push(/^[-•]/.test(x) ? x : '- ' + x)); }
@@ -2752,6 +2768,16 @@ function lhWA(rec) {
   if (rec.rencana) { L.push(''); L.push('Rencana besok :'); rec.rencana.split('\n').map(x => x.trim()).filter(Boolean).forEach(x => L.push(/^[-•]/.test(x) ? x : '- ' + x)); }
   const h = rec.hse || {}; const hs = [h.toolbox ? 'Toolbox ✓' : '', h.permit ? 'Permit ✓' : '', h.nihil ? 'Kejadian nihil ✓' : ''].filter(Boolean); if (hs.length || rec.qc) { L.push(''); L.push(`HSE : ${hs.join(' · ') || '—'}${rec.qc ? ' | QC : ' + rec.qc : ''}`); }
   L.push(''); L.push('Terimakasih.'); L.push(''); if (rec.pelapor) L.push(rec.pelapor); if (rec.jabatan) L.push(rec.jabatan);
+  return L.join('\n');
+}
+
+/* urutan vessel di teks WA (sesuai laporan lapangan: 146-D, 147-D, 120-C) */
+function waUrut() { const s = S(); const u = (s.waUrut || []).filter(id => s.vessels.some(v => v.id === id)); return [...u, ...s.vessels.map(v => v.id).filter(id => !u.includes(id))]; }
+/* teks WA format "progres per vessel" — 📌 Vessel 146-D / PT. MPJ / 1. Pasang scaffolding : 100%✅ */
+function lhWAProg(rec) {
+  if (!rec) return ''; const s = S(), bob = bobotAt(rec.tgl); const L = [];
+  waUrut().forEach((vid, k) => { if (k) L.push(''); L.push(`📌 Vessel ${vid}`); L.push(s.waPT || 'PT. MPJ');
+    bob.forEach((b, i) => { const p = Math.round(lhPos(rec, vid, i)); L.push(`${i + 1}. ${b.n} : ${p}%${p >= 100 ? '✅' : p > 0 ? '🅿️' : ''}`); }); });
   return L.join('\n');
 }
 </script></body></html>
