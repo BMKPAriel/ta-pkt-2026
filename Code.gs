@@ -8,9 +8,10 @@ const KODE_AKSES = 'GANTI-KODE-PROYEK';   // dibagikan ke semua pengguna aplikas
 const ADMIN_KEY  = 'GANTI-KUNCI-ADMIN';   // HANYA Project Control — untuk membaca GPS, audit & status online
 const FOLDER_FOTO = 'Foto TA PKT 2026';   // folder Google Drive untuk foto
 
-function doGet() { return out_({ok: true, app: 'TA-PKT server', t: Date.now()}); }
+function doGet(e) { if (e && e.parameter && (e.parameter.lat || e.parameter.location)) return out_(bgPoint_(e.parameter)); return out_({ok: true, app: 'TA-PKT server', t: Date.now()}); }
 function doPost(e) {
-  let b; try { b = JSON.parse(e.postData.contents); } catch (x) { return out_({ok: false, error: 'Format salah'}); }
+  let b; try { b = JSON.parse(e.postData.contents); } catch (x) { b = null; }
+  if (!b || !b.kode) { if (b && (b.location || b.lat)) return out_(bgPoint_(b)); if (e && e.parameter && (e.parameter.lat || e.parameter.location)) return out_(bgPoint_(e.parameter)); if (!b) return out_({ok: false, error: 'Format salah'}); }
   if (b.kode !== KODE_AKSES) return out_({ok: false, error: 'Kode akses salah'});
   const admin = b.adminKey === ADMIN_KEY;
   const lock = LockService.getScriptLock();
@@ -140,4 +141,31 @@ function stats_() {
   if (n > 1) s.getRange(2, 1, n - 1, 1).getValues().forEach(r => counts[r[0]] = (counts[r[0]] || 0) + 1);
   const g = sh_('gps', ['waktu', 't', 'tanggal', 'trip', 'kendaraan', 'driver', 'lat', 'lng', 'akurasi_m', 'kecepatan_kmj']);
   return {ok: true, counts, gps: Math.max(0, g.getLastRow() - 1)};
+}
+
+/* ---------- PELACAK LATAR BELAKANG (Traccar Client / OsmAnd) ----------
+   HP driver tetap mengirim posisi walau layar terkunci. Server URL di aplikasi pelacak = URL /exec ini,
+   "Device identifier" = Kode pelacak kendaraan (Master Kendaraan), mis. KT8981DJ. */
+const ZONA = 'Asia/Makassar';
+function bgMap_() {
+  const c = CacheService.getScriptCache(); const hit = c.get('bgmap'); if (hit) return JSON.parse(hit);
+  const s = sh_('data', ['koleksi', 'id', 'diubah', 'json', 'server_ts']); const n = s.getLastRow(); const m = {}; const trips = [];
+  if (n > 1) s.getRange(2, 1, n - 1, 4).getValues().forEach(r => { try { if (r[0] === 'kendaraan') { const o = JSON.parse(r[3]); if (o._del) return; const kode = String(o.trk || o.nopol || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); if (kode) m[kode] = {kend: o.id, drv: o.drv || ''}; } else if (r[0] === 'trips') { const o = JSON.parse(r[3]); if (!o._del && !o.selesai) trips.push({id: o.id, kend: o.kend, drv: o.drv || '', t: Number(o.tBerangkat) || 0}); } } catch (x) {} });
+  Object.keys(m).forEach(k => { const t = trips.filter(x => x.kend === m[k].kend).sort((a, b) => b.t - a.t)[0]; if (t) { m[k].trip = t.id; m[k].drv = t.drv || m[k].drv; } });
+  c.put('bgmap', JSON.stringify(m), 120); return m;
+}
+function bgPoint_(p) {
+  let id = p.id || p.deviceid || p.device_id || '', lat = p.lat, lng = p.lon, t = p.timestamp, acc = p.accuracy || p.hdop || '', spd = p.speed || '';
+  if (p.location && typeof p.location === 'object') { const L = p.location, c = L.coords || {}; lat = c.latitude; lng = c.longitude; acc = c.accuracy; spd = c.speed; t = L.timestamp; id = id || (L.extras && L.extras.id) || ''; }
+  else if (p.location && typeof p.location === 'string') { const a = p.location.split(','); lat = a[0]; lng = a[1]; }
+  lat = Number(lat); lng = Number(lng); if (!id || !isFinite(lat) || !isFinite(lng) || (!lat && !lng)) return {ok: false, error: 'data kurang'};
+  let ms = isNaN(Number(t)) ? new Date(t).getTime() : Number(t); if (!ms) ms = Date.now(); if (ms < 1e12) ms *= 1000;
+  const jam = Number(Utilities.formatDate(new Date(ms), ZONA, 'H')); if (jam < 5 || jam >= 23) return {ok: true, skip: 'di luar jam kerja'};
+  const kode = String(id).toUpperCase().replace(/[^A-Z0-9]/g, ''); const k = bgMap_()[kode]; if (!k) return {ok: true, skip: 'kode pelacak tidak dikenal: ' + kode};
+  let kmh = Number(spd) || 0; if (kmh && p.location && typeof p.location === 'object') kmh = kmh * 3.6; else if (kmh && p.speed !== undefined && !p.location) kmh = kmh * 1.852; // OsmAnd/Traccar: knot; JSON: m/s
+  const lock = LockService.getScriptLock(); try { lock.waitLock(20000); } catch (x) {}
+  try { const s = sh_('gps', ['waktu', 't', 'tanggal', 'trip', 'kendaraan', 'driver', 'lat', 'lng', 'akurasi_m', 'kecepatan_kmj']);
+    s.appendRow([new Date(ms), ms, Utilities.formatDate(new Date(ms), ZONA, 'yyyy-MM-dd'), k.trip || '', k.kend, k.drv || '', lat, lng, Math.round(Number(acc) || 0), Math.round(kmh), ]); }
+  finally { try { lock.releaseLock(); } catch (x) {} }
+  return {ok: true};
 }
