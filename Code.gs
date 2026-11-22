@@ -18,17 +18,17 @@ function doPost(e) {
   try {
     switch (b.action) {
       case 'ping': return out_({ok: true, admin, t: Date.now()});
-      case 'push': lock.waitLock(25000); return out_(push_(b.items || []));
-      case 'pull': return out_(pull_(Number(b.since) || 0));
-      case 'gps_push': lock.waitLock(25000); return out_(gpsPush_(b.points || []));
+      case 'push': if (!lock.tryLock(28000)) return out_({ok: false, error: 'Server sibuk, dicoba lagi otomatis'}); return out_(push_(b.items || []));
+      case 'pull': return out_(pull_(Number(b.since) || 0, b.cols, Number(b.max) || 0, !!b.strict));
+      case 'gps_push': return out_(gpsPush_(b.points || [], lock.tryLock(4000)));
       case 'gps_pull': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(gpsPull_(b.date, Number(b.since) || 0));
-      case 'audit_push': lock.waitLock(25000); return out_(auditPush_(b.rows || []));
+      case 'audit_push': if (!lock.tryLock(15000)) return out_({ok: false, error: 'Server sibuk'}); return out_(auditPush_(b.rows || []));
       case 'audit_pull': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(auditPull_());
       case 'presence': return out_(presence_(b));
       case 'presence_list': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(presenceList_());
       case 'pos_now': return out_(posNow_());
       case 'upload': return out_(upload_(b.name, b.data, b.folder));
-      case 'pin_set': lock.waitLock(25000); return out_(pinSet_(b.items || []));
+      case 'pin_set': if (!lock.tryLock(15000)) return out_({ok: false, error: 'Server sibuk'}); return out_(pinSet_(b.items || []));
       case 'pin_list': if (!admin) return out_({ok: false, error: 'Kunci Admin salah'}); return out_(pinList_());
       case 'stats': return out_(stats_());
       default: return out_({ok: false, error: 'Aksi tidak dikenal'});
@@ -62,20 +62,25 @@ function push_(items) {
   if (add.length) s.getRange(s.getLastRow() + 1, 1, add.length, 5).setValues(add);
   return {ok: true, added: add.length, updated: up};
 }
-function pull_(since) {
+function pull_(since, cols, max, strict) {
   const s = sh_('data', ['koleksi', 'id', 'diubah', 'json', 'server_ts']); const n = s.getLastRow(); const now = Date.now();
   if (n < 2) return {ok: true, items: [], now};
-  const v = s.getRange(2, 1, n - 1, 5).getValues(); const items = [];
-  v.forEach(r => { if (Number(r[4]) > since - 2000) items.push({c: r[0], id: r[1], j: r[3]}); });
-  return {ok: true, items, now};
+  const want = Array.isArray(cols) && cols.length ? cols : null; max = max || 100000;
+  const meta = s.getRange(2, 1, n - 1, 5).getValues(); // koleksi, id, diubah, json, server_ts
+  const hit = []; meta.forEach((r, i) => { const ts = Number(r[4]) || 0; if (ts > (strict ? since : since - 2000) && (!want || want.indexOf(r[0]) >= 0)) hit.push({i, ts}); });
+  hit.sort((a, b) => a.ts - b.ts);
+  const items = []; let bytes = 0, more = false, last = now;
+  for (let k = 0; k < hit.length; k++) { const r = meta[hit[k].i]; const j = String(r[3] || ''); if (items.length && (items.length >= max || bytes + j.length > 2500000) && hit[k].ts !== hit[k - 1].ts) { more = true; last = hit[k - 1].ts; break; } items.push({c: r[0], id: r[1], j}); bytes += j.length; }
+  return {ok: true, items, now: more ? last : now, more};
 }
 /* ---------- GPS ---------- */
-function gpsPush_(pts) {
+function gpsPush_(pts, locked) {
   if (!pts.length) return {ok: true, n: 0};
   const s = sh_('gps', ['waktu', 't', 'tanggal', 'trip', 'kendaraan', 'driver', 'lat', 'lng', 'akurasi_m', 'kecepatan_kmj']);
   const tz = Session.getScriptTimeZone();
   const rows = pts.map(p => [new Date(p.t), p.t, Utilities.formatDate(new Date(p.t), tz, 'yyyy-MM-dd'), p.trip, p.kend, p.drv, p.lat, p.lng, p.acc, p.spd]);
-  s.getRange(s.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  if (locked) s.getRange(s.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  else rows.forEach(r => s.appendRow(r)); // tanpa kunci: appendRow aman dipakai bersamaan oleh banyak HP
   return {ok: true, n: rows.length};
 }
 function gpsPull_(date, since) {
